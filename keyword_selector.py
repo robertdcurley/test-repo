@@ -1,107 +1,117 @@
-# -*- coding: utf-8 -*-
+class CheckableComboBox(QComboBox):
 
-import sys
-import mysql.connector as mc
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                              QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                              QTableWidget, QTableWidgetItem, QGroupBox, QStatusBar,
-                              QMessageBox)
-from PyQt6.QtCore import Qt
-import pandas as pd
+    # Subclass Delegate to increase item height
+    class Delegate(QStyledItemDelegate):
+        def sizeHint(self, option, index):
+            size = super().sizeHint(option, index)
+            size.setHeight(20)
+            return size
 
-from keyword_selector import CheckableComboBox
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
+        # Make the combo editable to set a custom text, but readonly
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        # Make the lineedit the same color as QPushButton
+        palette = qApp.palette()
+        palette.setBrush(QPalette.Base, palette.button())
+        self.lineEdit().setPalette(palette)
 
-class ScanResultsWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Scan Results Viewer")
-        self.setGeometry(100, 100, 1000, 700)
-        
-        # Create central widget and main layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(10)
-        
-        # === Database Configuration Group ===
-        db_group = QGroupBox("Database Configuration")
-        db_group_layout = QVBoxLayout()
-        
-        # Database name input
-        db_layout = QHBoxLayout()
-        db_label = QLabel("Database:")
-        db_label.setMinimumWidth(120)
-        self.lineEditDb = QLineEdit()
-        self.lineEditDb.setPlaceholderText("Enter database name")
-        db_layout.addWidget(db_label)
-        db_layout.addWidget(self.lineEditDb)
-        db_group_layout.addLayout(db_layout)
-        
-        # Table name input
-        table_layout = QHBoxLayout()
-        table_label = QLabel("Table:")
-        table_label.setMinimumWidth(120)
-        self.lineEditTable = QLineEdit()
-        self.lineEditTable.setPlaceholderText("Enter table name")
-        table_layout.addWidget(table_label)
-        table_layout.addWidget(self.lineEditTable)
-        db_group_layout.addLayout(table_layout)
-        
-        db_group.setLayout(db_group_layout)
-        main_layout.addWidget(db_group)
-        
-        # === Search Criteria Group ===
-        search_group = QGroupBox("Search Criteria")
-        search_group_layout = QVBoxLayout()
-        
-        # Path search input
-        path_layout = QHBoxLayout()
-        path_label = QLabel("Mount Path:")
-        path_label.setMinimumWidth(120)
-        self.lineEditSearch = QLineEdit()
-        self.lineEditSearch.setPlaceholderText("Enter path to filter (optional)")
-        path_layout.addWidget(path_label)
-        path_layout.addWidget(self.lineEditSearch)
-        search_group_layout.addLayout(path_layout)
-        
-        # Keywords combo box
-        keywords_layout = QHBoxLayout()
-        keywords_label = QLabel("Keywords:")
-        keywords_label.setMinimumWidth(120)
-        self.combo = CheckableComboBox()
-        
-        # Load keywords from Excel spreadsheet
-        try:
-            df = pd.read_excel("2021-08-RFADT-Keywords.xlsx")
-            keywords = df["Keywords"].tolist()
-            self.combo.addItems(keywords)
-            print(f"Loaded {len(keywords)} keywords")
-        except Exception as e:
-            print(f"Error loading keywords: {e}")
-            # Add some default keywords if file not found
-            self.combo.addItems(['keyword1', 'keyword2', 'keyword3'])
-        
-        keywords_layout.addWidget(keywords_label)
-        keywords_layout.addWidget(self.combo)
-        search_group_layout.addLayout(keywords_layout)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        
-        self.btnClear = QPushButton("Clear Table")
-        self.btnClear.setMinimumSize(120, 35)
-        self.btnClear.clicked.connect(self.clear_data)
-        button_layout.addWidget(self.btnClear)
-        
-        self.btnSearch = QPushButton("Show Data")
-        self.btnSearch.setMinimumSize(120, 35)
-        self.btnSearch.clicked.connect(self.query_files)
-        button_layout.addWidget(self.btnSearch)
-        
-        search_group_layout.addLayout(button_layout)
-        
-        search_group.setLayout(search_group_layout)
-        main_layout.addWidget(search_group)
+        # Use custom delegate
+        self.setItemDelegate(CheckableComboBox.Delegate())
+
+        # Update the text when an item is toggled
+        self.model().dataChanged.connect(self.updateText)
+
+        # Hide and show popup when clicking the line edit
+        self.lineEdit().installEventFilter(self)
+        self.closeOnLineEditClick = False
+
+        # Prevent popup from closing when clicking on an item
+        self.view().viewport().installEventFilter(self)
+
+    def resizeEvent(self, event):
+        # Recompute text to elide as needed
+        self.updateText()
+        super().resizeEvent(event)
+
+    def eventFilter(self, object, event):
+
+        if object == self.lineEdit():
+            if event.type() == QEvent.MouseButtonRelease:
+                if self.closeOnLineEditClick:
+                    self.hidePopup()
+                else:
+                    self.showPopup()
+                return True
+            return False
+
+        if object == self.view().viewport():
+            if event.type() == QEvent.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                item = self.model().item(index.row())
+
+                if item.checkState() == Qt.Checked:
+                    item.setCheckState(Qt.Unchecked)
+                else:
+                    item.setCheckState(Qt.Checked)
+                return True
+        return False
+
+    def showPopup(self):
+        super().showPopup()
+        # When the popup is displayed, a click on the lineedit should close it
+        self.closeOnLineEditClick = True
+
+    def hidePopup(self):
+        super().hidePopup()
+        # Used to prevent immediate reopening when clicking on the lineEdit
+        self.startTimer(100)
+        # Refresh the display text when closing
+        self.updateText()
+
+    def timerEvent(self, event):
+        # After timeout, kill timer, and reenable click on line edit
+        self.killTimer(event.timerId())
+        self.closeOnLineEditClick = False
+
+    def updateText(self):
+        texts = []
+        for i in range(self.model().rowCount()):
+            if self.model().item(i).checkState() == Qt.Checked:
+                texts.append(self.model().item(i).text())
+        text = ", ".join(texts)
+
+        # Compute elided text (with "...")
+        metrics = QFontMetrics(self.lineEdit().font())
+        elidedText = metrics.elidedText(text, Qt.ElideRight, self.lineEdit().width())
+        self.lineEdit().setText(elidedText)
+
+    def addItem(self, text, data=None):
+        item = QStandardItem()
+        item.setText(text)
+        if data is None:
+            item.setData(text)
+        else:
+            item.setData(data)
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+        item.setData(Qt.Unchecked, Qt.CheckStateRole)
+        self.model().appendRow(item)
+
+    def addItems(self, texts, datalist=None):
+        for i, text in enumerate(texts):
+            try:
+                data = datalist[i]
+            except (TypeError, IndexError):
+                data = None
+            self.addItem(text, data)
+
+    def currentData(self):
+        # Return the list of selected items data
+        res = []
+        for i in range(self.model().rowCount()):
+            if self.model().item(i).checkState() == Qt.Checked:
+                res.append(self.model().item(i).data())
+        return res
+
