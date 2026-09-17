@@ -1,0 +1,142 @@
+import { CheckBox, ScrollView } from "std-widgets.slint";
+
+export struct Item {
+    label: string,
+    checked: bool,
+}
+
+export component CheckableComboBox {
+    in-out property <[Item]> items;  // no hardcoded items - will come from Rust
+    in-out property <string> selected-text;  // set from Rust
+
+    private property <bool> open: false;
+
+    width: 320px;
+    height: 400px;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+
+        // Read-only text display
+        Rectangle {
+            height: 38px;
+            border-width: 1.5px;
+            border-color: #d6cfc0;
+            border-radius: 6px;
+            background: #faf8f4;
+
+            Text {
+                x: 10px;
+                width: parent.width - 20px;
+                text: root.selected-text == "" ? "None selected…" : root.selected-text;
+                color: root.selected-text == "" ? #aaa : #2d2a22;
+                font-size: 13px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+
+        // Dropdown toggle button
+        Rectangle {
+            height: 38px;
+            border-radius: 6px;
+            background: open ? #444 : #2d2a22;
+            drop-shadow-blur: 4px;
+            drop-shadow-color: #0002;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+
+                Text {
+                    text: "Choose items";
+                    color: #f5f0e8;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: open ? "▲" : "▼";
+                    color: #f5f0e8;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+            }
+
+            TouchArea {
+                clicked => { open = !open; }
+            }
+        }
+
+        // Dropdown list (visible only when open)
+        if open : Rectangle {
+            border-width: 1.5px;
+            border-color: #d6cfc0;
+            border-radius: 8px;
+            background: #fff;
+            clip: true;
+            height: min(items.length * 40px, 200px);
+
+            ScrollView {
+                VerticalLayout {
+                    for item[idx] in items : Rectangle {
+                        height: 40px;
+                        background: item.checked ? #f5f0e8 : #fff;
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 10px;
+
+                            CheckBox {
+                                checked: item.checked;
+                                toggled => {
+                                    items[idx].checked = self.checked;
+                                }
+                            }
+
+                            Text {
+                                text: item.label;
+                                color: #2d2a22;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Row hover highlight
+                        TouchArea {
+                            clicked => {
+                                items[idx].checked = !items[idx].checked;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Checkable ComboBox";
+    width: 360px;
+    height: 460px;
+    background: #f5f0e8;
+
+    VerticalLayout {
+        alignment: center;
+        padding: 40px;
+
+        Text {
+            text: "FRUIT SELECTOR";
+            font-size: 12px;
+            letter-spacing: 2px;
+            color: #888;
+            horizontal-alignment: center;
+        }
+
+        Rectangle { height: 16px; }
+
+        CheckableComboBox {}
+    }
+}
